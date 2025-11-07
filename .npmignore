@@ -1,0 +1,44 @@
+# Build output (not needed, we publish src/)
+lib/
+dist/
+*.tsbuildinfo
+
+# Development files
+.git/
+.gitignore
+.npmignore
+tsconfig.json
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Testing
+coverage/
+.nyc_output/
+__tests__/
+__mocks__/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+node_modules/
