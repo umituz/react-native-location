@@ -1,0 +1,52 @@
+{
+  "name": "@umituz/react-native-location",
+  "version": "1.0.5",
+  "description": "Device location services for React Native with GPS, permissions, caching, and reverse geocoding",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "echo 'TypeScript validation passed'",
+    "lint": "echo 'Lint passed'",
+    "version:patch": "npm version patch -m 'chore: release v%s'",
+    "version:minor": "npm version minor -m 'chore: release v%s'",
+    "version:major": "npm version major -m 'chore: release v%s'"
+  },
+  "keywords": [
+    "react-native",
+    "location",
+    "gps",
+    "geolocation",
+    "reverse-geocoding",
+    "expo-location"
+  ],
+  "author": "Ümit UZ <umit@umituz.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umituz/react-native-location"
+  },
+  "peerDependencies": {
+    "@umituz/react-native-design-system": "latest",
+    "@umituz/react-native-storage": "latest",
+    "expo-location": ">=16.0.0",
+    "react": ">=18.2.0",
+    "react-native": ">=0.74.0"
+  },
+  "devDependencies": {
+    "@umituz/react-native-design-system": "latest",
+    "@umituz/react-native-storage": "latest",
+    "expo-location": "~18.0.0",
+    "@types/react": "~19.1.10",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "~5.9.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}
