@@ -33,10 +33,11 @@
     "react-native": ">=0.74.0"
   },
   "devDependencies": {
+    "@types/react": "~19.1.10",
     "@umituz/react-native-design-system": "latest",
     "@umituz/react-native-storage": "latest",
     "expo-location": "~18.0.0",
-    "@types/react": "~19.1.10",
+    "firebase": "^12.7.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "typescript": "~5.9.2"
