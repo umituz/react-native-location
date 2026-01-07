@@ -29,6 +29,15 @@ export interface CachedLocationData {
     timestamp: number;
 }
 
+export type DistanceUnit = "km" | "miles" | "meters";
+
+export type LocationErrorCode =
+    | "PERMISSION_DENIED"
+    | "LOCATION_UNAVAILABLE"
+    | "TIMEOUT"
+    | "CACHE_ERROR"
+    | "UNKNOWN_ERROR";
+
 export interface LocationConfig {
     accuracy?: Location.Accuracy;
     timeout?: number;
@@ -36,6 +45,7 @@ export interface LocationConfig {
     cacheKey?: string;
     cacheDuration?: number;
     withAddress?: boolean;
+    distanceFilter?: number;
 }
 
 export const DEFAULT_LOCATION_CONFIG: LocationConfig = {
@@ -45,14 +55,17 @@ export const DEFAULT_LOCATION_CONFIG: LocationConfig = {
     cacheKey: "default",
     cacheDuration: 300000,
     withAddress: true,
+    distanceFilter: 10,
 };
 
-export type LocationErrorCode =
-    | "PERMISSION_DENIED"
-    | "LOCATION_UNAVAILABLE"
-    | "TIMEOUT"
-    | "CACHE_ERROR"
-    | "UNKNOWN_ERROR";
+export type LocationCallback = (location: LocationData) => void;
+export type LocationErrorCallback = (error: LocationError) => void;
+
+export interface LocationWatcherOptions {
+    accuracy?: Location.Accuracy;
+    distanceFilter?: number;
+    timeout?: number;
+}
 
 export class LocationErrorImpl extends Error implements LocationError {
     code: LocationErrorCode;

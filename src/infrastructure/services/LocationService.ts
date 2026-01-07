@@ -180,6 +180,55 @@ export class LocationService {
             return undefined;
         }
     }
+
+    async isLocationEnabled(): Promise<boolean> {
+        try {
+            this.log("Checking if location is enabled...");
+            const enabled = await Location.hasServicesEnabledAsync();
+            this.log("Location enabled:", enabled);
+            return enabled;
+        } catch (error) {
+            this.logError("Error checking location enabled:", error);
+            return false;
+        }
+    }
+
+    async getPermissionStatus(): Promise<Location.PermissionStatus> {
+        try {
+            this.log("Getting permission status...");
+            const status = await Location.getForegroundPermissionsAsync();
+            this.log("Permission status:", status.status);
+            return status.status;
+        } catch (error) {
+            this.logError("Error getting permission status:", error);
+            return "undetermined";
+        }
+    }
+
+    async getLastKnownPosition(): Promise<LocationData | null> {
+        try {
+            this.log("Getting last known position...");
+            const location = await Location.getLastKnownPositionAsync();
+
+            if (!location) {
+                this.log("No last known position available");
+                return null;
+            }
+
+            this.log("Last known position obtained", location);
+
+            return {
+                coords: {
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude,
+                },
+                timestamp: location.timestamp,
+            };
+        } catch (error) {
+            this.logError("Error getting last known position:", error);
+            return null;
+        }
+    }
 }
 
 export function createLocationService(config?: LocationConfig): LocationService {
