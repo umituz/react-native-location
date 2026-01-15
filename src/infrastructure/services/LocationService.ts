@@ -201,7 +201,7 @@ export class LocationService {
             return status.status;
         } catch (error) {
             this.logError("Error getting permission status:", error);
-            return "undetermined";
+            return Location.PermissionStatus.UNDETERMINED;
         }
     }
 
