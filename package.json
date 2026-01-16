@@ -1,6 +1,6 @@
 {
   "name": "@umituz/react-native-location",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Device location services for React Native with GPS, permissions, caching, and reverse geocoding",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
