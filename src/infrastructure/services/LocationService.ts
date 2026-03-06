@@ -1,5 +1,5 @@
 import * as Location from "expo-location";
-import { storageRepository, unwrap } from "@umituz/react-native-storage";
+import { storageRepository, unwrap } from "@umituz/react-native-design-system/storage";
 import {
     LocationData,
     LocationConfig,
