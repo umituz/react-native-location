@@ -7,17 +7,13 @@
 
     /* Modules */
     "module": "ES2020",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "baseUrl": "./",
 
     /* Emit */
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "noEmit": true,
     "removeComments": false,
-    "noEmit": false,
 
     /* Interop Constraints */
     "esModuleInterop": true,
