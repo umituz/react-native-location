@@ -73,11 +73,10 @@ export class LocationUtils {
         coord2: Coordinates,
         precision = 6
     ): boolean {
-        const lat1 = coord1.latitude.toFixed(precision);
-        const lat2 = coord2.latitude.toFixed(precision);
-        const lon1 = coord1.longitude.toFixed(precision);
-        const lon2 = coord2.longitude.toFixed(precision);
-
-        return lat1 === lat2 && lon1 === lon2;
+        const epsilon = Math.pow(10, -precision);
+        return (
+            Math.abs(coord1.latitude - coord2.latitude) < epsilon &&
+            Math.abs(coord1.longitude - coord2.longitude) < epsilon
+        );
     }
 }

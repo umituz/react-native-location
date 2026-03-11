@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createLocationWatcher } from "../../infrastructure/services/LocationWatcher";
+import { LocationWatcher } from "../../infrastructure/services/LocationWatcher";
 import { LocationData, LocationError, LocationWatcherOptions } from "../../types/location.types";
 
 export interface UseLocationWatchResult {
@@ -11,7 +11,7 @@ export interface UseLocationWatchResult {
 }
 
 export function useLocationWatch(options?: LocationWatcherOptions): UseLocationWatchResult {
-    const watcherRef = useRef<ReturnType<typeof createLocationWatcher> | null>(null);
+    const watcherRef = useRef<LocationWatcher | null>(null);
     const [location, setLocation] = useState<LocationData | null>(null);
     const [error, setError] = useState<LocationError | null>(null);
     const [isWatching, setIsWatching] = useState(false);
@@ -26,36 +26,24 @@ export function useLocationWatch(options?: LocationWatcherOptions): UseLocationW
 
     const startWatching = useCallback(async () => {
         stopWatching();
+        setError(null);
 
-        const watcher = createLocationWatcher(options);
+        const watcher = new LocationWatcher(options);
         watcherRef.current = watcher;
 
-        try {
-            await watcher.watchPosition(
-                (data) => {
-                    setLocation(data);
-                    setError(null);
-                },
-                (err) => {
-                    setError(err);
-                }
-            );
+        await watcher.watchPosition(
+            (data) => {
+                setLocation(data);
+                setError(null);
+            },
+            (err) => {
+                setError(err);
+                setIsWatching(false);
+            },
+        );
+
+        if (watcher.isWatching()) {
             setIsWatching(true);
-        } catch (err) {
-            let errorObj: LocationError = {
-                code: "UNKNOWN_ERROR",
-                message: "An unknown error occurred",
-            };
-
-            if (err && typeof err === "object" && "code" in err && "message" in err) {
-                errorObj = {
-                    code: typeof err.code === "string" ? err.code : "UNKNOWN_ERROR",
-                    message: typeof err.message === "string" ? err.message : "An unknown error occurred",
-                };
-            }
-
-            setError(errorObj);
-            setIsWatching(false);
         }
     }, [options, stopWatching]);
 
@@ -65,11 +53,5 @@ export function useLocationWatch(options?: LocationWatcherOptions): UseLocationW
         };
     }, [stopWatching]);
 
-    return {
-        location,
-        error,
-        isWatching,
-        startWatching,
-        stopWatching,
-    };
+    return { location, error, isWatching, startWatching, stopWatching };
 }

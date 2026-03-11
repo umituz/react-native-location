@@ -2,21 +2,33 @@ import * as Location from "expo-location";
 import { storageRepository, unwrap } from "@umituz/react-native-design-system/storage";
 import {
     LocationData,
+    LocationAddress,
     LocationConfig,
-    DEFAULT_LOCATION_CONFIG,
-    CachedLocationData,
-    LocationErrorImpl,
+    LocationError,
     LocationErrorCode,
 } from "../../types/location.types";
 
-declare const __DEV__: boolean;
+interface CachedLocationData {
+    location: LocationData;
+    timestamp: number;
+}
+
+const DEFAULT_CONFIG: Required<LocationConfig> = {
+    accuracy: Location.Accuracy.Balanced,
+    timeout: 10000,
+    enableCache: true,
+    cacheKey: "default",
+    cacheDuration: 300000,
+    withAddress: true,
+};
 
 export class LocationService {
-    private config: LocationConfig;
+    private config: Required<LocationConfig>;
     private storage = storageRepository;
+    private inFlightRequest: Promise<LocationData> | null = null;
 
     constructor(config: LocationConfig = {}) {
-        this.config = { ...DEFAULT_LOCATION_CONFIG, ...config };
+        this.config = { ...DEFAULT_CONFIG, ...config };
     }
 
     private log(message: string, ...args: unknown[]): void {
@@ -31,17 +43,13 @@ export class LocationService {
         }
     }
 
-    private logWarn(message: string, ...args: unknown[]): void {
-        if (__DEV__) {
-            console.warn(`[LocationService] ${message}`, ...args);
-        }
-    }
-
     async requestPermissions(): Promise<boolean> {
         try {
+            const { status: current } = await Location.getForegroundPermissionsAsync();
+            if (current === "granted") return true;
+
             this.log("Requesting permissions...");
             const { status } = await Location.requestForegroundPermissionsAsync();
-            this.log("Permission status:", status);
             return status === "granted";
         } catch (error) {
             this.logError("Error requesting permissions:", error);
@@ -49,27 +57,23 @@ export class LocationService {
         }
     }
 
+    private getCacheKey(): string {
+        const suffix = this.config.withAddress ? "_addr" : "";
+        return `location_cache_${this.config.cacheKey}${suffix}`;
+    }
+
     private async getCachedLocation(): Promise<LocationData | null> {
-        if (!this.config.enableCache) {
-            return null;
-        }
+        if (!this.config.enableCache) return null;
 
         try {
-            const cacheKey = `location_cache_${this.config.cacheKey}`;
+            const cacheKey = this.getCacheKey();
             const result = await this.storage.getItem<CachedLocationData | null>(cacheKey, null);
             const cached = unwrap(result, null);
 
-            if (!cached) {
-                this.log("No cached location found");
-                return null;
-            }
+            if (!cached) return null;
 
-            const now = Date.now();
-            const cacheAge = now - cached.timestamp;
-            const cacheDuration = this.config.cacheDuration || 300000;
-
-            if (cacheAge > cacheDuration) {
-                this.log("Cache expired");
+            const cacheAge = Date.now() - cached.timestamp;
+            if (cacheAge > this.config.cacheDuration) {
                 await this.storage.removeItem(cacheKey);
                 return null;
             }
@@ -83,55 +87,47 @@ export class LocationService {
     }
 
     private async cacheLocation(location: LocationData): Promise<void> {
-        if (!this.config.enableCache) {
-            return;
-        }
+        if (!this.config.enableCache) return;
 
         try {
-            const cacheKey = `location_cache_${this.config.cacheKey}`;
-            const cachedData: CachedLocationData = {
-                location,
-                timestamp: Date.now(),
-            };
-            await this.storage.setItem(cacheKey, cachedData);
-            this.log("Location cached successfully");
+            const data: CachedLocationData = { location, timestamp: Date.now() };
+            await this.storage.setItem(this.getCacheKey(), data);
         } catch (error) {
             this.logError("Cache write error:", error);
         }
     }
 
     async getCurrentPosition(): Promise<LocationData> {
-        const withAddress = this.config.withAddress ?? true;
-
-        this.log("getCurrentPosition called");
-
-        const cached = await this.getCachedLocation();
-        if (cached) {
-            this.log("Returning cached location");
-            return cached;
+        if (this.inFlightRequest) {
+            return this.inFlightRequest;
         }
+
+        this.inFlightRequest = this.fetchPosition();
+        try {
+            return await this.inFlightRequest;
+        } finally {
+            this.inFlightRequest = null;
+        }
+    }
+
+    private async fetchPosition(): Promise<LocationData> {
+        const cached = await this.getCachedLocation();
+        if (cached) return cached;
 
         const hasPermission = await this.requestPermissions();
         if (!hasPermission) {
-            this.logWarn("Permission denied");
-            throw new LocationErrorImpl("PERMISSION_DENIED", "Location permission not granted");
+            throw this.createError("PERMISSION_DENIED", "Location permission not granted");
         }
 
         try {
-            this.log("Getting position...");
-            const location = await Location.getCurrentPositionAsync({
-                accuracy: this.config.accuracy,
-            });
-            this.log("Position obtained", location);
+            const location = await this.getPositionWithTimeout();
 
-            let addressData;
-            if (withAddress) {
-                this.log("Reverse geocoding...");
-                addressData = await this.reverseGeocode(
+            let address: LocationAddress | undefined;
+            if (this.config.withAddress) {
+                address = await this.reverseGeocode(
                     location.coords.latitude,
-                    location.coords.longitude
+                    location.coords.longitude,
                 );
-                this.log("Address obtained", addressData);
             }
 
             const locationData: LocationData = {
@@ -140,53 +136,64 @@ export class LocationService {
                     longitude: location.coords.longitude,
                 },
                 timestamp: location.timestamp,
-                address: addressData,
+                address,
             };
 
             await this.cacheLocation(locationData);
-
             return locationData;
         } catch (error) {
             this.logError("Error getting location:", error);
 
-            let errorCode: LocationErrorCode = "UNKNOWN_ERROR";
-            let errorMessage = "Unknown error getting location";
-
-            if (error instanceof LocationErrorImpl) {
-                errorCode = error.code;
-                errorMessage = error.message;
-            } else if (error instanceof Error) {
-                errorMessage = error.message;
+            if (error instanceof Error && "code" in error) {
+                throw error;
             }
 
-            throw new LocationErrorImpl(errorCode, errorMessage);
+            const message = error instanceof Error ? error.message : "Unknown error getting location";
+            throw this.createError("UNKNOWN_ERROR", message);
         }
     }
 
-    async reverseGeocode(latitude: number, longitude: number) {
+    private async getPositionWithTimeout(): Promise<Location.LocationObject> {
+        let timeoutId: ReturnType<typeof setTimeout>;
+
+        const locationPromise = Location.getCurrentPositionAsync({
+            accuracy: this.config.accuracy,
+        });
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(this.createError("TIMEOUT", `Location request timed out after ${this.config.timeout}ms`));
+            }, this.config.timeout);
+        });
+
+        const result = await Promise.race([locationPromise, timeoutPromise]);
+        clearTimeout(timeoutId!);
+        return result;
+    }
+
+    async reverseGeocode(latitude: number, longitude: number): Promise<LocationAddress | undefined> {
         try {
             const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
             if (!address) return undefined;
 
             return {
-                city: address.city,
-                region: address.region,
-                country: address.country,
-                street: address.street,
-                formattedAddress: [address.city, address.country].filter(Boolean).join(", "),
+                city: address.city ?? null,
+                region: address.region ?? null,
+                country: address.country ?? null,
+                street: address.street ?? null,
+                formattedAddress: [address.street, address.city, address.region, address.country]
+                    .filter(Boolean)
+                    .join(", ") || null,
             };
         } catch (error) {
-            this.logWarn("Reverse geocode failed:", error);
+            this.logError("Reverse geocode failed:", error);
             return undefined;
         }
     }
 
     async isLocationEnabled(): Promise<boolean> {
         try {
-            this.log("Checking if location is enabled...");
-            const enabled = await Location.hasServicesEnabledAsync();
-            this.log("Location enabled:", enabled);
-            return enabled;
+            return await Location.hasServicesEnabledAsync();
         } catch (error) {
             this.logError("Error checking location enabled:", error);
             return false;
@@ -195,10 +202,8 @@ export class LocationService {
 
     async getPermissionStatus(): Promise<Location.PermissionStatus> {
         try {
-            this.log("Getting permission status...");
-            const status = await Location.getForegroundPermissionsAsync();
-            this.log("Permission status:", status.status);
-            return status.status;
+            const { status } = await Location.getForegroundPermissionsAsync();
+            return status;
         } catch (error) {
             this.logError("Error getting permission status:", error);
             return Location.PermissionStatus.UNDETERMINED;
@@ -207,15 +212,8 @@ export class LocationService {
 
     async getLastKnownPosition(): Promise<LocationData | null> {
         try {
-            this.log("Getting last known position...");
             const location = await Location.getLastKnownPositionAsync();
-
-            if (!location) {
-                this.log("No last known position available");
-                return null;
-            }
-
-            this.log("Last known position obtained", location);
+            if (!location) return null;
 
             return {
                 coords: {
@@ -229,8 +227,11 @@ export class LocationService {
             return null;
         }
     }
-}
 
-export function createLocationService(config?: LocationConfig): LocationService {
-    return new LocationService(config);
+    private createError(code: LocationErrorCode, message: string): LocationError & Error {
+        const error = new Error(message) as Error & LocationError;
+        error.name = "LocationError";
+        error.code = code;
+        return error;
+    }
 }

@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from "react";
-import { createLocationService } from "../../infrastructure/services/LocationService";
-import { LocationData, LocationError, LocationConfig } from "../../types/location.types";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { LocationService } from "../../infrastructure/services/LocationService";
+import { LocationData, LocationError, LocationConfig, LocationErrorCode } from "../../types/location.types";
 
 export interface UseLocationResult {
     location: LocationData | null;
@@ -10,10 +10,25 @@ export interface UseLocationResult {
 }
 
 export function useLocation(config?: LocationConfig): UseLocationResult {
-    const serviceRef = useRef(createLocationService(config));
+    const configRef = useRef(config);
+    const serviceRef = useRef(new LocationService(config));
+
+    if (configRef.current !== config) {
+        configRef.current = config;
+        serviceRef.current = new LocationService(config);
+    }
+
     const [location, setLocation] = useState<LocationData | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<LocationError | null>(null);
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
 
     const getCurrentLocation = useCallback(async () => {
         setIsLoading(true);
@@ -21,32 +36,33 @@ export function useLocation(config?: LocationConfig): UseLocationResult {
 
         try {
             const data = await serviceRef.current.getCurrentPosition();
-            setLocation(data);
+            if (mountedRef.current) {
+                setLocation(data);
+            }
             return data;
         } catch (err) {
-            let errorObj: LocationError = {
-                code: "UNKNOWN_ERROR",
-                message: "An unknown error occurred",
+            const errorObj: LocationError = {
+                code: extractErrorCode(err),
+                message: err instanceof Error ? err.message : "An unknown error occurred",
             };
 
-            if (err && typeof err === "object" && "code" in err && "message" in err) {
-                errorObj = {
-                    code: typeof err.code === "string" ? err.code : "UNKNOWN_ERROR",
-                    message: typeof err.message === "string" ? err.message : "An unknown error occurred",
-                };
+            if (mountedRef.current) {
+                setError(errorObj);
             }
-
-            setError(errorObj);
             return null;
         } finally {
-            setIsLoading(false);
+            if (mountedRef.current) {
+                setIsLoading(false);
+            }
         }
     }, []);
 
-    return {
-        location,
-        isLoading,
-        error,
-        getCurrentLocation,
-    };
+    return { location, isLoading, error, getCurrentLocation };
+}
+
+function extractErrorCode(err: unknown): LocationErrorCode {
+    if (err instanceof Error && "code" in err && typeof (err as { code: unknown }).code === "string") {
+        return (err as { code: string }).code as LocationErrorCode;
+    }
+    return "UNKNOWN_ERROR";
 }

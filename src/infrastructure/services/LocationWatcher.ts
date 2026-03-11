@@ -2,14 +2,12 @@ import * as Location from "expo-location";
 import {
     LocationData,
     LocationError,
-    LocationCallback,
-    LocationErrorCallback,
-    LocationWatcherOptions,
-    LocationErrorImpl,
     LocationErrorCode,
+    LocationWatcherOptions,
 } from "../../types/location.types";
 
-declare const __DEV__: boolean;
+type LocationCallback = (location: LocationData) => void;
+type ErrorCallback = (error: LocationError) => void;
 
 export class LocationWatcher {
     private subscription: Location.LocationSubscription | null = null;
@@ -31,70 +29,46 @@ export class LocationWatcher {
         }
     }
 
-    async watchPosition(
-        onSuccess: LocationCallback,
-        onError?: LocationErrorCallback
-    ): Promise<string> {
+    async watchPosition(onSuccess: LocationCallback, onError?: ErrorCallback): Promise<void> {
+        this.clearWatch();
+
         try {
-            this.log("Requesting permissions...");
-            const { status } = await Location.requestForegroundPermissionsAsync();
-
-            if (status !== "granted") {
-                const error: LocationError = {
-                    code: "PERMISSION_DENIED",
-                    message: "Location permission not granted",
-                };
-                if (onError) {
-                    onError(error);
-                }
-                throw new LocationErrorImpl("PERMISSION_DENIED", "Location permission not granted");
+            const granted = await this.ensurePermission();
+            if (!granted) {
+                onError?.({ code: "PERMISSION_DENIED", message: "Location permission not granted" });
+                return;
             }
-
-            this.log("Starting location watch...");
 
             this.subscription = await Location.watchPositionAsync(
                 {
-                    accuracy: this.options.accuracy || Location.Accuracy.Balanced,
+                    accuracy: this.options.accuracy ?? Location.Accuracy.Balanced,
+                    distanceInterval: this.options.distanceInterval,
+                    timeInterval: this.options.timeInterval,
                 },
                 (location) => {
-                    this.log("Location update received", location);
-
-                    const locationData: LocationData = {
+                    onSuccess({
                         coords: {
                             latitude: location.coords.latitude,
                             longitude: location.coords.longitude,
                         },
                         timestamp: location.timestamp,
-                    };
-
-                    onSuccess(locationData);
-                }
+                    });
+                },
             );
-
-            return "watching";
         } catch (error) {
             this.logError("Error watching position:", error);
 
-            let errorCode: LocationErrorCode = "UNKNOWN_ERROR";
-            let errorMessage = "Unknown error watching location";
+            let code: LocationErrorCode = "UNKNOWN_ERROR";
+            let message = "Unknown error watching location";
 
-            if (error instanceof LocationErrorImpl) {
-                errorCode = error.code;
-                errorMessage = error.message;
-            } else if (error instanceof Error) {
-                errorMessage = error.message;
+            if (error instanceof Error) {
+                message = error.message;
+                if ("code" in error) {
+                    code = (error as { code: string }).code as LocationErrorCode;
+                }
             }
 
-            const locationError: LocationError = {
-                code: errorCode,
-                message: errorMessage,
-            };
-
-            if (onError) {
-                onError(locationError);
-            }
-
-            throw new LocationErrorImpl(errorCode, errorMessage);
+            onError?.({ code, message });
         }
     }
 
@@ -109,8 +83,18 @@ export class LocationWatcher {
     isWatching(): boolean {
         return this.subscription !== null;
     }
-}
 
-export function createLocationWatcher(options?: LocationWatcherOptions): LocationWatcher {
-    return new LocationWatcher(options);
+    private async ensurePermission(): Promise<boolean> {
+        try {
+            const { status: current } = await Location.getForegroundPermissionsAsync();
+            if (current === "granted") return true;
+
+            this.log("Requesting permissions...");
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            return status === "granted";
+        } catch (error) {
+            this.logError("Error requesting permissions:", error);
+            return false;
+        }
+    }
 }
