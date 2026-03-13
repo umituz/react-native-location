@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { LocationWatcher } from "../../infrastructure/services/LocationWatcher";
 import { LocationData, LocationError, LocationWatcherOptions } from "../../types/location.types";
+import { LocationUtils } from "../../infrastructure/utils/LocationUtils";
 
 export interface UseLocationWatchResult {
     location: LocationData | null;
@@ -11,6 +12,8 @@ export interface UseLocationWatchResult {
 }
 
 export function useLocationWatch(options?: LocationWatcherOptions): UseLocationWatchResult {
+    // Use stable reference for deep comparison of options object
+    const optionsStringRef = useRef<string>(LocationUtils.getStableReference(options));
     const watcherRef = useRef<LocationWatcher | null>(null);
     const [location, setLocation] = useState<LocationData | null>(null);
     const [error, setError] = useState<LocationError | null>(null);
@@ -37,6 +40,8 @@ export function useLocationWatch(options?: LocationWatcherOptions): UseLocationW
                 setError(null);
             },
             (err) => {
+                // Clear watcher reference on error to maintain consistent state
+                watcherRef.current = null;
                 setError(err);
                 setIsWatching(false);
             },
@@ -45,7 +50,7 @@ export function useLocationWatch(options?: LocationWatcherOptions): UseLocationW
         if (watcher.isWatching()) {
             setIsWatching(true);
         }
-    }, [options, stopWatching]);
+    }, [optionsStringRef, stopWatching]); // Use string ref for stable dependency
 
     useEffect(() => {
         return () => {

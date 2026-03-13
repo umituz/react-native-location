@@ -6,10 +6,13 @@ import {
     LocationWatcherOptions,
 } from "../../types/location.types";
 
-type LocationCallback = (location: LocationData) => void;
-type ErrorCallback = (error: LocationError) => void;
-
 export class LocationWatcher {
+    private static readonly VALID_ERROR_CODES: readonly LocationErrorCode[] = [
+        "PERMISSION_DENIED",
+        "TIMEOUT",
+        "UNKNOWN_ERROR",
+    ] as const;
+
     private subscription: Location.LocationSubscription | null = null;
     private options: LocationWatcherOptions;
 
@@ -17,19 +20,10 @@ export class LocationWatcher {
         this.options = options;
     }
 
-    private log(message: string, ...args: unknown[]): void {
-        if (__DEV__) {
-            console.log(`[LocationWatcher] ${message}`, ...args);
-        }
-    }
-
-    private logError(message: string, error: unknown): void {
-        if (__DEV__) {
-            console.error(`[LocationWatcher] ${message}`, error);
-        }
-    }
-
-    async watchPosition(onSuccess: LocationCallback, onError?: ErrorCallback): Promise<void> {
+    async watchPosition(
+        onSuccess: (location: LocationData) => void,
+        onError?: (error: LocationError) => void,
+    ): Promise<void> {
         this.clearWatch();
 
         try {
@@ -56,15 +50,17 @@ export class LocationWatcher {
                 },
             );
         } catch (error) {
-            this.logError("Error watching position:", error);
+            if (__DEV__) console.error("[LocationWatcher] Error watching position:", error);
 
             let code: LocationErrorCode = "UNKNOWN_ERROR";
             let message = "Unknown error watching location";
 
             if (error instanceof Error) {
                 message = error.message;
-                if ("code" in error) {
-                    code = (error as { code: string }).code as LocationErrorCode;
+                if ("code" in error && typeof error.code === "string") {
+                    if (LocationWatcher.VALID_ERROR_CODES.includes(error.code as LocationErrorCode)) {
+                        code = error.code as LocationErrorCode;
+                    }
                 }
             }
 
@@ -74,7 +70,7 @@ export class LocationWatcher {
 
     clearWatch(): void {
         if (this.subscription) {
-            this.log("Clearing location watch");
+            if (__DEV__) console.log("[LocationWatcher] Clearing location watch");
             this.subscription.remove();
             this.subscription = null;
         }
@@ -89,11 +85,11 @@ export class LocationWatcher {
             const { status: current } = await Location.getForegroundPermissionsAsync();
             if (current === "granted") return true;
 
-            this.log("Requesting permissions...");
+            if (__DEV__) console.log("[LocationWatcher] Requesting permissions...");
             const { status } = await Location.requestForegroundPermissionsAsync();
             return status === "granted";
         } catch (error) {
-            this.logError("Error requesting permissions:", error);
+            if (__DEV__) console.error("[LocationWatcher] Error requesting permissions:", error);
             return false;
         }
     }

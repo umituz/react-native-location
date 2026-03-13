@@ -7,6 +7,7 @@ import {
     LocationError,
     LocationErrorCode,
 } from "../../types/location.types";
+import { LocationUtils } from "../utils/LocationUtils";
 
 interface CachedLocationData {
     location: LocationData;
@@ -24,23 +25,10 @@ const DEFAULT_CONFIG: Required<LocationConfig> = {
 
 export class LocationService {
     private config: Required<LocationConfig>;
-    private storage = storageRepository;
     private inFlightRequest: Promise<LocationData> | null = null;
 
     constructor(config: LocationConfig = {}) {
         this.config = { ...DEFAULT_CONFIG, ...config };
-    }
-
-    private log(message: string, ...args: unknown[]): void {
-        if (__DEV__) {
-            console.log(`[LocationService] ${message}`, ...args);
-        }
-    }
-
-    private logError(message: string, error: unknown): void {
-        if (__DEV__) {
-            console.error(`[LocationService] ${message}`, error);
-        }
     }
 
     async requestPermissions(): Promise<boolean> {
@@ -48,18 +36,17 @@ export class LocationService {
             const { status: current } = await Location.getForegroundPermissionsAsync();
             if (current === "granted") return true;
 
-            this.log("Requesting permissions...");
+            if (__DEV__) console.log("[LocationService] Requesting permissions...");
             const { status } = await Location.requestForegroundPermissionsAsync();
             return status === "granted";
         } catch (error) {
-            this.logError("Error requesting permissions:", error);
+            if (__DEV__) console.error("[LocationService] Error requesting permissions:", error);
             return false;
         }
     }
 
     private getCacheKey(): string {
-        const suffix = this.config.withAddress ? "_addr" : "";
-        return `location_cache_${this.config.cacheKey}${suffix}`;
+        return LocationUtils.generateCacheKey(this.config.cacheKey, this.config.withAddress);
     }
 
     private async getCachedLocation(): Promise<LocationData | null> {
@@ -67,21 +54,20 @@ export class LocationService {
 
         try {
             const cacheKey = this.getCacheKey();
-            const result = await this.storage.getItem<CachedLocationData | null>(cacheKey, null);
+            const result = await storageRepository.getItem<CachedLocationData | null>(cacheKey, null);
             const cached = unwrap(result, null);
 
             if (!cached) return null;
 
-            const cacheAge = Date.now() - cached.timestamp;
-            if (cacheAge > this.config.cacheDuration) {
-                await this.storage.removeItem(cacheKey);
+            if (LocationUtils.isCacheExpired(cached.timestamp, this.config.cacheDuration)) {
+                await storageRepository.removeItem(cacheKey);
                 return null;
             }
 
-            this.log("Using cached location");
+            if (__DEV__) console.log("[LocationService] Using cached location");
             return cached.location;
         } catch (error) {
-            this.logError("Cache read error:", error);
+            if (__DEV__) console.error("[LocationService] Cache read error:", error);
             return null;
         }
     }
@@ -91,9 +77,9 @@ export class LocationService {
 
         try {
             const data: CachedLocationData = { location, timestamp: Date.now() };
-            await this.storage.setItem(this.getCacheKey(), data);
+            await storageRepository.setItem(this.getCacheKey(), data);
         } catch (error) {
-            this.logError("Cache write error:", error);
+            if (__DEV__) console.error("[LocationService] Cache write error:", error);
         }
     }
 
@@ -142,11 +128,7 @@ export class LocationService {
             await this.cacheLocation(locationData);
             return locationData;
         } catch (error) {
-            this.logError("Error getting location:", error);
-
-            if (error instanceof Error && "code" in error) {
-                throw error;
-            }
+            if (__DEV__) console.error("[LocationService] Error getting location:", error);
 
             const message = error instanceof Error ? error.message : "Unknown error getting location";
             throw this.createError("UNKNOWN_ERROR", message);
@@ -154,7 +136,7 @@ export class LocationService {
     }
 
     private async getPositionWithTimeout(): Promise<Location.LocationObject> {
-        let timeoutId: ReturnType<typeof setTimeout>;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
         const locationPromise = Location.getCurrentPositionAsync({
             accuracy: this.config.accuracy,
@@ -166,9 +148,14 @@ export class LocationService {
             }, this.config.timeout);
         });
 
-        const result = await Promise.race([locationPromise, timeoutPromise]);
-        clearTimeout(timeoutId!);
-        return result;
+        try {
+            const result = await Promise.race([locationPromise, timeoutPromise]);
+            return result;
+        } finally {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+            }
+        }
     }
 
     async reverseGeocode(latitude: number, longitude: number): Promise<LocationAddress | undefined> {
@@ -176,17 +163,9 @@ export class LocationService {
             const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
             if (!address) return undefined;
 
-            return {
-                city: address.city ?? null,
-                region: address.region ?? null,
-                country: address.country ?? null,
-                street: address.street ?? null,
-                formattedAddress: [address.street, address.city, address.region, address.country]
-                    .filter(Boolean)
-                    .join(", ") || null,
-            };
+            return LocationUtils.buildFormattedAddress(address);
         } catch (error) {
-            this.logError("Reverse geocode failed:", error);
+            if (__DEV__) console.error("[LocationService] Reverse geocode failed:", error);
             return undefined;
         }
     }
@@ -195,7 +174,7 @@ export class LocationService {
         try {
             return await Location.hasServicesEnabledAsync();
         } catch (error) {
-            this.logError("Error checking location enabled:", error);
+            if (__DEV__) console.error("[LocationService] Error checking location enabled:", error);
             return false;
         }
     }
@@ -205,7 +184,7 @@ export class LocationService {
             const { status } = await Location.getForegroundPermissionsAsync();
             return status;
         } catch (error) {
-            this.logError("Error getting permission status:", error);
+            if (__DEV__) console.error("[LocationService] Error getting permission status:", error);
             return Location.PermissionStatus.UNDETERMINED;
         }
     }
@@ -223,7 +202,7 @@ export class LocationService {
                 timestamp: location.timestamp,
             };
         } catch (error) {
-            this.logError("Error getting last known position:", error);
+            if (__DEV__) console.error("[LocationService] Error getting last known position:", error);
             return null;
         }
     }

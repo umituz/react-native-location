@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { LocationService } from "../../infrastructure/services/LocationService";
 import { LocationData, LocationError, LocationConfig, LocationErrorCode } from "../../types/location.types";
+import { LocationUtils } from "../../infrastructure/utils/LocationUtils";
+
+const VALID_ERROR_CODES: readonly LocationErrorCode[] = ["PERMISSION_DENIED", "TIMEOUT", "UNKNOWN_ERROR"] as const;
 
 export interface UseLocationResult {
     location: LocationData | null;
@@ -10,11 +13,13 @@ export interface UseLocationResult {
 }
 
 export function useLocation(config?: LocationConfig): UseLocationResult {
-    const configRef = useRef(config);
+    // Use stable reference for deep comparison of config object
+    const configStringRef = useRef<string>(LocationUtils.getStableReference(config));
     const serviceRef = useRef(new LocationService(config));
 
-    if (configRef.current !== config) {
-        configRef.current = config;
+    const currentConfigString = LocationUtils.getStableReference(config);
+    if (configStringRef.current !== currentConfigString) {
+        configStringRef.current = currentConfigString;
         serviceRef.current = new LocationService(config);
     }
 
@@ -41,8 +46,16 @@ export function useLocation(config?: LocationConfig): UseLocationResult {
             }
             return data;
         } catch (err) {
+            // Extract and validate error code inline
+            let code: LocationErrorCode = "UNKNOWN_ERROR";
+            if (err instanceof Error && "code" in err && typeof err.code === "string") {
+                if (VALID_ERROR_CODES.includes(err.code as LocationErrorCode)) {
+                    code = err.code as LocationErrorCode;
+                }
+            }
+
             const errorObj: LocationError = {
-                code: extractErrorCode(err),
+                code,
                 message: err instanceof Error ? err.message : "An unknown error occurred",
             };
 
@@ -55,14 +68,7 @@ export function useLocation(config?: LocationConfig): UseLocationResult {
                 setIsLoading(false);
             }
         }
-    }, []);
+    }, [configStringRef]);
 
     return { location, isLoading, error, getCurrentLocation };
-}
-
-function extractErrorCode(err: unknown): LocationErrorCode {
-    if (err instanceof Error && "code" in err && typeof (err as { code: unknown }).code === "string") {
-        return (err as { code: string }).code as LocationErrorCode;
-    }
-    return "UNKNOWN_ERROR";
 }
